@@ -1,0 +1,7 @@
+name = "Unet-Chernobyl-Wildfires"
+authors = ["ABrozova"]
+[compat]
+julia = "1.10.0"
+DrWatson = "2.13.0"
+[deps]
+DrWatson = "634d3b9d-ee7a-5ddf-bec9-22491ea816e1"
