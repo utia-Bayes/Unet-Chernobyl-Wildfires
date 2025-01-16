@@ -1,10 +1,4 @@
 # Unet-Chernobyl-Wildfires
-<<<<<<< HEAD
-
-Repository for reproducible research of atmospheric inversion, as published in:
-[1] Brozova et. al. Spatial-temporal Source Term Estimation using Deep Neural
-Network Prior and its Application to Chernobyl Wildfires, Journal of Hazardous Materials...
-=======
 Repository for reproducible research of atmospheric inversion, as published in: [1] Brozova et. al. Spatial-temporal Source Term Estimation using Deep Neural Network Prior and its Application to Chernobyl Wildfires, Journal of Hazardous Materials...
 
 This code base is using the [Julia Language](https://julialang.org/) and
@@ -36,4 +30,3 @@ using DrWatson
 ```
 which auto-activate the project and enable local path handling from DrWatson.
 
->>>>>>> master
