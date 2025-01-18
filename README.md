@@ -26,4 +26,5 @@ everything should work out of the box, including correctly finding local paths.
 
 Run the code in unet_posterior.jl, starting with activation of the Unet-Chernobyl-Wildfires environment.
 
+Our results are save as results15.mat. The file contains a tensor of size 11x11x3x7x28x15, with the last dimension coresponding to the seed. To obtain our final estimate, just compute mean over the last dimension.
 
