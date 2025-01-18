@@ -51,7 +51,7 @@ struct training
     clip_norm_tresh::Float32 # treshold for clipNorm
 end
 
-function training(measure_N; epochs=20000, lr=0.01f0, β=(0.9, 0.999), report_step=1000, cgt=Inf, cnt=Inf)
+function training(measure_N; epochs=20000, lr=0.01f0, β=(0.9, 0.999), report_step=5000, cgt=Inf, cnt=Inf)
     # measure_N ...................... number of mesurements upsz_y
     # epochs, lr, β, report_step ..... parameters of training
     # cgt, cnt ....................... tresholds for gradient clipping of values, resp. norms, Inf means no clipping
@@ -71,7 +71,7 @@ mutable struct invert_var_cher
     ω::Float32 # precision of data
 end
 
-function invert_var_cher(Ms::Array{Float64, 6}; epochs=20000, lr=0.01f0, β=(0.9, 0.999), report_step=1000, cgt=Inf, cnt=Inf, omega=1e-2)
+function invert_var_cher(Ms::Array{Float64, 6}; epochs=20000, lr=0.01f0, β=(0.9, 0.999), report_step=5000, cgt=Inf, cnt=Inf, omega=1e-2)
     # Ms .................. SRS matrices, tensor of size lat x lon x fraction x altitude x measurements x time
     # epochs, lr, β, report-step, cgt, cnt ... parameters of training
     # omega .................................. precision of data
@@ -97,7 +97,7 @@ struct pretraining
 end
 
 function pretraining(source_size_x, source_size_y, source_size_time, source_size_alt, source_size_frac, 
-    measure_N; epochs=20000, lr=0.01f0, β=(0.9, 0.999), report_step=1000)
+    measure_N; epochs=20000, lr=0.01f0, β=(0.9, 0.999), report_step=5000)
     #source_size_x .............. number of latitude steps 
     #source_size_y .............. number of longitude steps
     #source_size_time ........... number of time steps
@@ -130,7 +130,7 @@ function pretraining(source_size_x, source_size_y, source_size_time, source_size
     pretraining(epochs, lr, β, pred, report_step, loss, stand, mn)
 end
 
-function pretraining(Ms; epochs=20000, lr=0.01f0, β=(0.9, 0.999), report_step=1000)
+function pretraining(Ms; epochs=20000, lr=0.01f0, β=(0.9, 0.999), report_step=5000)
     # Ms ...................... SRS matrices, tensor of size lat x lon x fraction x altitude x measurements x time
     #std ........................ target std of shape time x particle size x height level
     #mean ....................... target mean of shape time x particle size x height level
