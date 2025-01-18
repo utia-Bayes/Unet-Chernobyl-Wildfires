@@ -20,3 +20,15 @@ function create_big2DM(M)
 
     return big2DM
 end
+
+function predict(x::Array, twoD_mat::Matrix)
+    #prediction from an array
+    out_x = vec(x)
+    return twoD_mat'*out_x
+end
+
+function predict(x::CuArray, twoD_mat::CuArray)
+    #prediction from a CuArray
+    out_x = vec(x)
+    return twoD_mat'*out_x
+end

@@ -1,10 +1,7 @@
 using Flux
 using Random
-include(srcdir(unet.jl))
-include(srcdir(utils.jl))
-include(srcdir(invert_struct.jl))
 
-function pretrain(in::invert_var_cher, pt::pretraining_ch; log = true, scale = 1.0, logmodel = false)
+function pretrain!(in::invert_var_cher, pt::pretraining)
     # pretrain the unet to output target values
     # in .............. inversion structure
     # pt .............. pretraining structure
@@ -15,65 +12,33 @@ function pretrain(in::invert_var_cher, pt::pretraining_ch; log = true, scale = 1
 
     # set tragets 
     m, n, t, f, a = size(in.unet(in.zx)[1])
-    target = vcat(vec(pt.mu), vec(pt.std))./scale
-    if logmodel == true
-        println("Log was set to false, because logmodel = true.")
-        log = false
-    end
+    target = vcat(vec(pt.mu), vec(pt.std))
+
     mu, sigma = vec.(in.unet(in.zx))
-    max_m = zeros(div(pt.epochs, pt.report_step)+1)
-    max_m[1] = maximum(mu)
-    max_s = zeros(div(pt.epochs, pt.report_step)+1)
-    max_s[1] = maximum(sigma)
-    min_m = zeros(div(pt.epochs, pt.report_step)+1)
-    min_m[1] = minimum(mu)
-    min_s = zeros(div(pt.epochs, pt.report_step)+1)
-    min_s[1] = minimum(sigma)
+    y_pred = predict(cpu(mu), in.st.twoDM)
+    curr_loss = Flux.mse(log10.(vcat(mu, sigma)), log10.(target))
+    pt.pred[:, 1] = cpu(y_pred)
+    pt.loss[1] = curr_loss
     for j = 1 : pt.epochs
-        if log
-            gsx, _ = gradient(in.unet, in.zx, target) do unet, in_array, tar # calculate the gradients
-                Flux.mse(log10.(vcat(vec.(unet(in_array))...)), log10.(tar))
-            end
-        elseif logmodel
-            gsx, _ = gradient(in.unet, in.zx, target) do unet, in_array, tar # calculate the gradients
-                mu, S = vec.(unet(in_array))
-                mean_x = exp.(mu.+S/2)
-                std_x = sqrt.(exp.(S.^2 .-1).*exp.(2 .*mu .+ S.^2))
-                Flux.mse(log10.(vcat(mean_x, std_x)), log10.(tar))
-            end
-        else
-            gsx, _ = gradient(in.unet, in.zx, target) do unet, in_array, tar # calculate the gradients
-                Flux.mse(vcat(vec.(unet(in_array))...), tar)
-            end
+        #get gradients
+        gsx, _ = gradient(in.unet, in.zx, target) do unet, in_array, tar # calculate the gradients
+            Flux.mse(log10.(vcat(vec.(unet(in_array))...)), log10.(tar))
         end
 
+        #update the unet
         state, in.unet = Optimisers.update!(state, in.unet, gsx)
 
+        #print out report
         if div(j, pt.report_step)-(j)/pt.report_step == 0
             mu, sigma = vec.(in.unet(in.zx))
-            if log
-                curr_loss = Flux.mse(log10.(vcat(mu, sigma)), log10.(target))
-            elseif logmodel
-                mean_x = exp.(mu.+sigma/2)
-                std_x = sqrt.(exp.(sigma.^2 .-1).*exp.(2 .*mu .+ sigma.^2))
-                curr_loss = Flux.mse(log10.(vcat(mean_x, std_x)), log10.(target))
-            else
-                curr_loss = Flux.mse(vcat(mu, sigma), target)
-            end
+            curr_loss = Flux.mse(log10.(vcat(mu, sigma)), log10.(target))
             y_pred = predict(cpu(mu), in.st.twoDM)
             println("Iteration ", j, ", Loss: ", curr_loss)
-            pt.prog_m[:, div(j, pt.report_step)+1] = vec(sum(reshape(cpu(mu), m, n, t, f, a)[:, :, :,1,1], dims=3))
-            pt.prog_s[:, div(j, pt.report_step)+1] = vec(sum(reshape(cpu(sigma), m, n, t, f, a)[:, :, :,1,1], dims=3))
             pt.pred[:, div(j, pt.report_step)+1] = cpu(y_pred)
             pt.loss[div(j, pt.report_step)+1] = curr_loss
-            max_m[div(j, pt.report_step)+1] = maximum(mu)
-            max_s[div(j, pt.report_step)+1] = maximum(sigma)
-            min_m[div(j, pt.report_step)+1] = minimum(mu)
-            min_s[div(j, pt.report_step)+1] = minimum(sigma)
             isnan(curr_loss) ? break : continue
         end
     end
-    return max_m, max_s, min_m, min_s
 end
 
 function invert!(in::invert_var_cher, y::CuArray)
@@ -104,17 +69,17 @@ function invert!(in::invert_var_cher, y::CuArray)
     # get losses before optimization
     ls = size(in.st.twoDM, 1) #number of measurements
     epsilon = randn(ls, 1)|>gpu #sample epsilon
-    in.tr.elbo_loss[1] = var_loss_rep_hinge(in.unet, in.varp.ω, in.zx,  Mty, Mt, epsilon) #compute elbo
+    in.tr.elbo_loss[1] = var_loss_rep_hinge(in.unet, in.ω, in.zx,  Mty, Mt, epsilon) #compute elbo
     mu, sigma = vec.(in.unet(in.zx)) # get mu and sigma
     y_pred = predict(mu, gpu(in.st.twoDM)) # get prediction
     in.tr.mse_loss[1] = Flux.mse(y_pred, y) #compute MSE loss
 
     #run optimization
     for j = 1 : in.tr.epochs
-        epsilon = randn(ls, in.varp.n_samples)|>gpu #sample epsilon
+        epsilon = randn(ls, 1)|>gpu #sample epsilon
 
         #compute gradient
-        gsx, _ = gradient(in.unet, in.varp.ω, in.zx, Mty, Mt, epsilon) do unet, om, in_array, omt, mtm, epsl
+        gsx, _ = gradient(in.unet, in.ω, in.zx, Mty, Mt, epsilon) do unet, om, in_array, omt, mtm, epsl
             var_loss_rep_hinge(unet, om, in_array, omt, mtm, epsl)
         end
 
@@ -122,7 +87,7 @@ function invert!(in::invert_var_cher, y::CuArray)
         state_unet, in.unet = Optimisers.update!(state_unet, in.unet, gsx)
 
         #compute current loss
-        curr_loss = var_loss_rep_hinge(in.unet, in.varp.ω, in.zx, Mty, Mt, epsilon)
+        curr_loss = var_loss_rep_hinge(in.unet, in.ω, in.zx, Mty, Mt, epsilon)
 
         #check the current loss value
         if isnan(curr_loss)
@@ -138,7 +103,7 @@ function invert!(in::invert_var_cher, y::CuArray)
             in.tr.mse_loss[div(j, in.tr.report_step)+1] = Flux.mse(y_pred, y)
             in.tr.pred[:, div(j, in.tr.report_step)+1] = cpu(y_pred)
             in.tr.elbo_loss[div(j, in.tr.report_step)+1] = curr_loss
-            println("Iteration ", j, ", MSE Loss: ", curr_loss)
+            println("Iteration ", j, ", ELBO Loss: ", curr_loss, " + const", ", MSE Loss: ", in.tr.mse_loss[div(j, in.tr.report_step)+1])
         end
     end
 end
