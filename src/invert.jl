@@ -5,6 +5,7 @@ function pretrain!(in::invert_var_cher, pt::pretraining)
     # pretrain the unet to output target values
     # in .............. inversion structure
     # pt .............. pretraining structure
+    println("Pretraining the U-net...")
 
     # set optimiser for unet
     opt = Optimisers.Adam(pt.lr, pt.β)
@@ -39,12 +40,14 @@ function pretrain!(in::invert_var_cher, pt::pretraining)
             isnan(curr_loss) ? break : continue
         end
     end
+    println("Pretraining finished.")
 end
 
-function invert!(in::invert_var_cher, y::CuArray)
+function invert!(in::invert_var_cher, y::CuArray; ind=1, k=1)
     # inversion 
     # in ........... inversion structure
     # y ............ measurements
+    println(string("Performing inversion number ", ind, " out of ", k, "."))
 
     #create the optimiser for unet
     if in.tr.clip_grad_tresh == Inf && in.tr.clip_norm_tresh == Inf
@@ -106,6 +109,7 @@ function invert!(in::invert_var_cher, y::CuArray)
             println("Iteration ", j, ", ELBO Loss: ", curr_loss, " + const", ", MSE Loss: ", in.tr.mse_loss[div(j, in.tr.report_step)+1])
         end
     end
+    println(string(ind, "-th inversion finished."))
 end
 
 function var_loss_rep_hinge(Gx::Unet_var, omega::Float32, in_array::CuArray, MTy::CuArray, twoDMT, ϵs)
