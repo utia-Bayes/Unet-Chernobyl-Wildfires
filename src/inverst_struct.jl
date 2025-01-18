@@ -1,7 +1,5 @@
 using Flux
 using Random
-include(srcdir(unet.jl))
-include(srcdir(utils.jl))
 
 struct source_term_cher
     # structure for parameters of source term and unet representing it
@@ -53,26 +51,27 @@ struct training
     clip_norm_tresh::Float32 # treshold for clipNorm
 end
 
-function training(measure_N; epochs=2000, lr=0.01f0, β=(0.9, 0.999), report_step=100, cgt=Inf, cnt=Inf)
+function training(measure_N; epochs=20000, lr=0.01f0, β=(0.9, 0.999), report_step=1000, cgt=Inf, cnt=Inf)
     # measure_N ...................... number of mesurements upsz_y
     # epochs, lr, β, report_step ..... parameters of training
     # cgt, cnt ....................... tresholds for gradient clipping of values, resp. norms, Inf means no clipping
 
     pred = zeros(measure_N, div(epochs, report_step) + 1)
     loss = zeros(div(epochs, report_step) + 1)
-    elbo = zeros(div(tr.epochs, tr.report_step) + 1)
+    elbo = zeros(div(epochs, report_step) + 1)
     training(epochs, lr, β, pred, report_step, loss, elbo, cgt, cnt)
 end
 
 mutable struct invert_var_cher
     # structure for the whole inversion process
     st::source_term_cher # parameters of source term
-    unet::Unet_var_2l_3d # unet represneting the posterior parametrs
+    unet::Unet_var # unet represneting the posterior parametrs
     zx::CuArray # input array for unet
     tr::training # parametrs of training
+    ω::Float32 # precision of data
 end
 
-function invert_var_cher(Ms::Array{Float64, 6}; epochs=20000, lr=0.01f0, β=(0.9, 0.999), report_step=100, cgt=Inf, cnt=Inf, omega=1e-2)
+function invert_var_cher(Ms::Array{Float64, 6}; epochs=20000, lr=0.01f0, β=(0.9, 0.999), report_step=1000, cgt=Inf, cnt=Inf, omega=1e-2)
     # Ms .................. SRS matrices, tensor of size lat x lon x fraction x altitude x measurements x time
     # epochs, lr, β, report-step, cgt, cnt ... parameters of training
     # omega .................................. precision of data
@@ -80,16 +79,10 @@ function invert_var_cher(Ms::Array{Float64, 6}; epochs=20000, lr=0.01f0, β=(0.9
     m, n, f, a, p, q = size(Ms) 
     st = source_term_cher(Ms, in_ch=f, out_ch=f, inner_ch = 2*f, skip_ch = 2)
     unet = Unet_var(st) |> gpu
-    if zxx == "rand"
-        zx = rand(Float32, st.upsz_x[1], st.upsz_y[1], st.upsz_z[1], f, a) |> gpu
-    elseif zxx == "randn"
-        zx = randn(Float32, st.upsz_x[1], st.upsz_y[1], st.upsz_z[1], f, a) |> gpu
-    else
-        zx = zxx |> gpu
-    end
+    zx = randn(Float32, st.upsz_x[1], st.upsz_y[1], st.upsz_z[1], f, a) |> gpu
     tr = training(p, epochs=epochs, lr=lr, β=β, report_step=report_step, cgt=cgt, cnt=cnt)
 
-    invert_var_cher(st, unet, zx, tr)
+    invert_var_cher(st, unet, zx, tr, omega)
 end
 
 struct pretraining
@@ -103,10 +96,8 @@ struct pretraining
     mu::CuArray{Float32} #target mean
 end
 
-using ImageFiltering
-
-function pretraining_ch(source_size_x, source_size_y, source_size_time, source_size_alt, source_size_frac, 
-    measure_N, std, mean; epochs=20000, lr=0.01f0, β=(0.9, 0.999), report_step=100)
+function pretraining(source_size_x, source_size_y, source_size_time, source_size_alt, source_size_frac, 
+    measure_N; epochs=20000, lr=0.01f0, β=(0.9, 0.999), report_step=1000)
     #source_size_x .............. number of latitude steps 
     #source_size_y .............. number of longitude steps
     #source_size_time ........... number of time steps
@@ -120,24 +111,30 @@ function pretraining_ch(source_size_x, source_size_y, source_size_time, source_s
     pred = zeros(measure_N, div(epochs, report_step) + 1)
     loss = zeros(div(epochs, report_step) + 1)
 
-    
+    #build the targets
+    std_in = ones(source_size_time, source_size_frac, source_size_alt).*(source_size_x*source_size_y)
+    mean_in = ones(source_size_time, source_size_frac, source_size_alt).*(source_size_x*source_size_y)
     stand = ones(source_size_x, source_size_y, source_size_time, source_size_frac, source_size_alt)
     mn = ones(source_size_x, source_size_y, source_size_time, source_size_frac, source_size_alt)
     invkern = ones(source_size_x, source_size_y)
     for a = 1 : source_size_alt
         for f = 1 : source_size_frac
             for t = 1 : source_size_time 
-                stand[:, :, t, f, a] = sqrt(std[t, f, a]^2/(source_size_x*source_size_y)).*invkern
-                mn[:, :, t, f, a] .= mean[t, f, a]/(source_size_x*source_size_y)
+                stand[:, :, t, f, a] = sqrt(std_in[t, f, a]^2/(source_size_x*source_size_y)).*invkern
+                mn[:, :, t, f, a] .= mean_in[t, f, a]/(source_size_x*source_size_y)
             end
         end
     end
     stand = vec(stand) |> gpu
     mn  = vec(mn) |> gpu
-    pretraining_ch(epochs, lr, β, pred, report_step, loss, stand, mn)
+    pretraining(epochs, lr, β, pred, report_step, loss, stand, mn)
 end
 
-function pretraining_ch(Ms, std, mu; epochs=2000, lr=0.01f0, β=(0.9, 0.999), report_step=100, std_shape = "unif")
+function pretraining(Ms; epochs=20000, lr=0.01f0, β=(0.9, 0.999), report_step=1000)
+    # Ms ...................... SRS matrices, tensor of size lat x lon x fraction x altitude x measurements x time
+    #std ........................ target std of shape time x particle size x height level
+    #mean ....................... target mean of shape time x particle size x height level
+
     m, n, f, a, p, t = size(Ms)
-    pretraining_ch(m, n, t, a, f, p, std, mu; epochs=epochs, lr=lr, β=β, report_step=report_step, std_shape = std_shape)
+    pretraining(m, n, t, a, f, p; epochs=epochs, lr=lr, β=β, report_step=report_step)
 end
