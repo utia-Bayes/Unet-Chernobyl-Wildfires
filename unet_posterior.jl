@@ -15,13 +15,16 @@ includet("src/inverst_struct.jl")
 includet(srcdir("invert.jl"))
 includet(srcdir("results.jl"))
 
-
 #load the data
-data = matread(datadir("chernobyl_wildfires_data.mat"))
+data = matread(datadir("data.mat"))
 y = data["y"]; #measuments
-Ms = data["Ms"]; #choose measurements outside cez and 2-29 April
 lon = data["longitudes"]; #get longitudes
 lat = data["latitudes"]; #get latitudes
+
+#load SRS
+file_names = ["SRS$i.mat" for i in 1:7];
+Ms_list = [matread(datadir(fname))["M1"] for fname in file_names];
+Ms = permutedims(cat(Ms_list...; dims=6), (1,2,3,6,4,5));
 
 #set the parameters of the method
 ω = 1e-2
@@ -41,7 +44,7 @@ for run = 1 : K
     #preform pretraining
     pretrain!(invstruct, prt)
     #perform inversion
-    invert!(invstruct, gpu(y))
+    invert!(invstruct, gpu(y), ind = run, k=K)
 
     #save the estimate
     push!(source_terms, cpu(invstruct.unet(invstruct.zx)[1]))
